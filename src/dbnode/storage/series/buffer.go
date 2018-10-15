@@ -44,7 +44,6 @@ var (
 	errInvalidMetricType           = errors.New("invalid metric type for context")
 	errBucketDoesNotExist          = errors.New("bucket does not exist for block start")
 	errMoreThanOneStreamAfterMerge = errors.New("buffer has more than one stream after merge")
-	errOutOfOrderBootstrap         = errors.New("block is too far in the past or future to be bootstrapped")
 
 	timeZero time.Time
 )

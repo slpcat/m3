@@ -22,7 +22,6 @@ package series
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -32,7 +31,6 @@ import (
 	"github.com/m3db/m3/src/dbnode/ts"
 	"github.com/m3db/m3/src/dbnode/x/xio"
 	"github.com/m3db/m3x/context"
-	xerrors "github.com/m3db/m3x/errors"
 	"github.com/m3db/m3x/ident"
 	"github.com/m3db/m3x/instrument"
 	xlog "github.com/m3db/m3x/log"
@@ -413,21 +411,6 @@ func (s *dbSeries) FetchBlocksMetadata(
 	return block.NewFetchBlocksMetadataResult(s.id, tagsIter, res), nil
 }
 
-func (s *dbSeries) mergeBlockWithLock(newBlock block.DatabaseBlock) error {
-	blockStart := newBlock.StartTime()
-
-	// If we don't have an existing block just insert the new block.
-	existingBlock, ok := s.blocks.BlockAt(blockStart)
-	if !ok {
-		// No existing block, we're safe to just add it.
-		s.addBlockWithLock(newBlock)
-		return nil
-	}
-
-	// There is already an existing block, perform a (lazy) merge.
-	return existingBlock.Merge(newBlock)
-}
-
 func (s *dbSeries) addBlockWithLock(b block.DatabaseBlock) {
 	b.SetOnEvictedFromWiredList(s.blockOnEvictedFromWiredList)
 	s.blocks.AddBlock(b)
@@ -569,15 +552,6 @@ func (s *dbSeries) OnEvictedFromWiredList(id ident.ID, blockStart time.Time) {
 
 		s.blocks.RemoveBlockAt(blockStart)
 	}
-}
-
-func (s *dbSeries) newBootstrapBlockError(
-	b block.DatabaseBlock,
-	err error,
-) error {
-	msgFmt := "bootstrap series error occurred for %s block at %s: %v"
-	renamed := fmt.Errorf(msgFmt, s.id.String(), b.StartTime().String(), err)
-	return xerrors.NewRenamedError(err, renamed)
 }
 
 func (s *dbSeries) Flush(
