@@ -135,9 +135,9 @@ type dbBuffer struct {
 	opts  Options
 	nowFn clock.NowFn
 
-	bucketCache [cacheSize]*dbBucket
-	buckets     map[xtime.UnixNano]*dbBucket
-	bucketPool  *dbBucketPool
+	bucketCache [cacheSize]*dbBufferBucket
+	buckets     map[xtime.UnixNano]*dbBufferBucket
+	bucketPool  *dbBufferBucketPool
 
 	blockSize               time.Duration
 	bufferPast              time.Duration
@@ -149,7 +149,7 @@ type dbBuffer struct {
 // object prior to use.
 func newDatabaseBuffer() databaseBuffer {
 	b := &dbBuffer{
-		buckets: make(map[xtime.UnixNano]*dbBucket),
+		buckets: make(map[xtime.UnixNano]*dbBufferBucket),
 	}
 	return b
 }
@@ -158,7 +158,7 @@ func (b *dbBuffer) Reset(opts Options) {
 	b.opts = opts
 	b.nowFn = opts.ClockOptions().NowFn()
 	bucketPoolOpts := pool.NewObjectPoolOptions().SetSize(defaultBucketContainerPoolSize)
-	b.bucketPool = newDBBucketPool(bucketPoolOpts)
+	b.bucketPool = newDBBufferBucketPool(bucketPoolOpts)
 	ropts := opts.RetentionOptions()
 	b.blockSize = ropts.BlockSize()
 	b.bufferPast = ropts.BufferPast()
@@ -340,14 +340,14 @@ func (b *dbBuffer) FetchBlocksMetadata(
 	return res
 }
 
-func (b *dbBuffer) newBucketAt(t time.Time) *dbBucket {
+func (b *dbBuffer) newBucketAt(t time.Time) *dbBufferBucket {
 	bucket := b.bucketPool.Get()
 	bucket.resetTo(t, b.opts)
 	b.buckets[xtime.ToUnixNano(t)] = bucket
 	return bucket
 }
 
-func (b *dbBuffer) bucketAt(t time.Time) (*dbBucket, bool) {
+func (b *dbBuffer) bucketAt(t time.Time) (*dbBufferBucket, bool) {
 	// First check LRU cache
 	for _, bucket := range b.buckets {
 		if bucket == nil {
@@ -367,7 +367,7 @@ func (b *dbBuffer) bucketAt(t time.Time) (*dbBucket, bool) {
 	return nil, false
 }
 
-func (b *dbBuffer) updateBucketCache(bg *dbBucket) {
+func (b *dbBuffer) updateBucketCache(bg *dbBufferBucket) {
 	b.bucketCache[b.lruBucketIdxInCache()] = bg
 }
 
@@ -486,7 +486,7 @@ func (b *dbBuffer) minMaxRealtimeBlockStarts(now time.Time) (time.Time, time.Tim
 	return min, max
 }
 
-type dbBucket struct {
+type dbBufferBucket struct {
 	opts              Options
 	start             time.Time
 	encoders          [numMetricTypes][]inOrderEncoder
@@ -499,7 +499,7 @@ type inOrderEncoder struct {
 	lastWriteAt time.Time
 }
 
-func (b *dbBucket) resetTo(
+func (b *dbBufferBucket) resetTo(
 	start time.Time,
 	opts Options,
 ) {
@@ -523,12 +523,12 @@ func (b *dbBucket) resetTo(
 	atomic.StoreInt64(&b.lastReadUnixNanos, 0)
 }
 
-func (b *dbBucket) finalize() {
+func (b *dbBufferBucket) finalize() {
 	b.resetEncoders(allMetricTypes)
 	b.resetBootstrapped(allMetricTypes)
 }
 
-func (b *dbBucket) empty() bool {
+func (b *dbBufferBucket) empty() bool {
 	for i := 0; i < numMetricTypes; i++ {
 		for _, block := range b.bootstrapped[i] {
 			if block.Len() > 0 {
@@ -544,14 +544,14 @@ func (b *dbBucket) empty() bool {
 	return true
 }
 
-func (b *dbBucket) bootstrap(
+func (b *dbBufferBucket) bootstrap(
 	bl block.DatabaseBlock,
 	mType metricType,
 ) {
 	b.bootstrapped[mType] = append(b.bootstrapped[mType], bl)
 }
 
-func (b *dbBucket) write(
+func (b *dbBufferBucket) write(
 	mType metricType,
 	timestamp time.Time,
 	value float64,
@@ -629,7 +629,7 @@ func (b *dbBucket) write(
 	return nil
 }
 
-func (b *dbBucket) writeToEncoderIndex(
+func (b *dbBufferBucket) writeToEncoderIndex(
 	mType metricType,
 	idx int,
 	datapoint ts.Datapoint,
@@ -649,7 +649,7 @@ func (b *dbBucket) writeToEncoderIndex(
 	return nil
 }
 
-func (b *dbBucket) streams(ctx context.Context, mType metricType) []xio.BlockReader {
+func (b *dbBufferBucket) streams(ctx context.Context, mType metricType) []xio.BlockReader {
 	streamsCap := 0
 	for mt := 0; mt < numMetricTypes; mt++ {
 		if mType != metricType(mt) && mType != allMetricTypes {
@@ -693,7 +693,7 @@ func (b *dbBucket) streams(ctx context.Context, mType metricType) []xio.BlockRea
 	return streams
 }
 
-func (b *dbBucket) streamsLen() int {
+func (b *dbBufferBucket) streamsLen() int {
 	length := 0
 
 	for mt := 0; mt < numMetricTypes; mt++ {
@@ -707,15 +707,15 @@ func (b *dbBucket) streamsLen() int {
 	return length
 }
 
-func (b *dbBucket) setLastRead(value time.Time) {
+func (b *dbBufferBucket) setLastRead(value time.Time) {
 	atomic.StoreInt64(&b.lastReadUnixNanos, value.UnixNano())
 }
 
-func (b *dbBucket) lastRead() time.Time {
+func (b *dbBufferBucket) lastRead() time.Time {
 	return time.Unix(0, atomic.LoadInt64(&b.lastReadUnixNanos))
 }
 
-func (b *dbBucket) resetEncoders(mt metricType) {
+func (b *dbBufferBucket) resetEncoders(mt metricType) {
 	var zeroed inOrderEncoder
 	for mType := 0; mType < numMetricTypes; mType++ {
 		if mt != metricType(mType) && mt != allMetricTypes {
@@ -732,7 +732,7 @@ func (b *dbBucket) resetEncoders(mt metricType) {
 	}
 }
 
-func (b *dbBucket) resetBootstrapped(mt metricType) {
+func (b *dbBufferBucket) resetBootstrapped(mt metricType) {
 	for mType := 0; mType < numMetricTypes; mType++ {
 		if mt != metricType(mType) && mt != allMetricTypes {
 			continue
@@ -746,38 +746,38 @@ func (b *dbBucket) resetBootstrapped(mt metricType) {
 	}
 }
 
-func (b *dbBucket) needsMerge() bool {
+func (b *dbBufferBucket) needsMerge() bool {
 	return !b.empty() && !b.hasJustSingleOOOEncoder() && !b.hasJustSingleRTEncoder() &&
 		!b.hasJustSingleOOOBootstrappedBlock() && !b.hasJustSingleRTBootstrappedBlock()
 }
 
-func (b *dbBucket) hasJustSingleOOOEncoder() bool {
+func (b *dbBufferBucket) hasJustSingleOOOEncoder() bool {
 	return len(b.encoders[outOfOrderType]) == 1 && len(b.bootstrapped[outOfOrderType]) == 0 &&
 		b.rtEncodersEmpty() && len(b.bootstrapped[realtimeType]) == 0
 }
 
-func (b *dbBucket) hasJustSingleRTEncoder() bool {
+func (b *dbBufferBucket) hasJustSingleRTEncoder() bool {
 	return len(b.encoders[realtimeType]) == 1 && len(b.bootstrapped[realtimeType]) == 0 &&
 		b.oooEncodersEmpty() && len(b.bootstrapped[outOfOrderType]) == 0
 }
 
-func (b *dbBucket) hasJustSingleOOOBootstrappedBlock() bool {
+func (b *dbBufferBucket) hasJustSingleOOOBootstrappedBlock() bool {
 	return b.oooEncodersEmpty() && len(b.bootstrapped[outOfOrderType]) == 1 &&
 		b.rtEncodersEmpty() && len(b.bootstrapped[realtimeType]) == 0
 }
 
-func (b *dbBucket) hasJustSingleRTBootstrappedBlock() bool {
+func (b *dbBufferBucket) hasJustSingleRTBootstrappedBlock() bool {
 	return b.rtEncodersEmpty() && len(b.bootstrapped[realtimeType]) == 1 &&
 		b.oooEncodersEmpty() && len(b.bootstrapped[outOfOrderType]) == 0
 }
 
-func (b *dbBucket) oooEncodersEmpty() bool {
+func (b *dbBufferBucket) oooEncodersEmpty() bool {
 	return len(b.encoders[outOfOrderType]) == 0 ||
 		(len(b.encoders[outOfOrderType]) == 1 &&
 			b.encoders[outOfOrderType][0].encoder.Len() == 0)
 }
 
-func (b *dbBucket) rtEncodersEmpty() bool {
+func (b *dbBufferBucket) rtEncodersEmpty() bool {
 	return len(b.encoders[realtimeType]) == 0 ||
 		(len(b.encoders[realtimeType]) == 1 &&
 			b.encoders[realtimeType][0].encoder.Len() == 0)
@@ -787,7 +787,7 @@ type mergeResult struct {
 	merges int
 }
 
-func (b *dbBucket) merge() (mergeResult, error) {
+func (b *dbBufferBucket) merge() (mergeResult, error) {
 	if !b.needsMerge() {
 		// Save unnecessary work
 		return mergeResult{}, nil
@@ -878,7 +878,7 @@ func (b *dbBucket) merge() (mergeResult, error) {
 	return mergeResult{merges: merges}, nil
 }
 
-func (b *dbBucket) stream(ctx context.Context, mType metricType) (xio.BlockReader, error) {
+func (b *dbBufferBucket) stream(ctx context.Context, mType metricType) (xio.BlockReader, error) {
 	if b.empty() {
 		return xio.EmptyBlockReader, nil
 	}
@@ -906,23 +906,23 @@ func (b *dbBucket) stream(ctx context.Context, mType metricType) (xio.BlockReade
 	return streams[0], nil
 }
 
-type dbBucketPool struct {
+type dbBufferBucketPool struct {
 	pool pool.ObjectPool
 }
 
-// newDBBucketPool creates a new dbBucketPool
-func newDBBucketPool(opts pool.ObjectPoolOptions) *dbBucketPool {
-	p := &dbBucketPool{pool: pool.NewObjectPool(opts)}
+// newDBBufferBucketPool creates a new dbBufferBucketPool
+func newDBBufferBucketPool(opts pool.ObjectPoolOptions) *dbBufferBucketPool {
+	p := &dbBufferBucketPool{pool: pool.NewObjectPool(opts)}
 	p.pool.Init(func() interface{} {
-		return &dbBucket{}
+		return &dbBufferBucket{}
 	})
 	return p
 }
 
-func (p *dbBucketPool) Get() *dbBucket {
-	return p.pool.Get().(*dbBucket)
+func (p *dbBufferBucketPool) Get() *dbBufferBucket {
+	return p.pool.Get().(*dbBufferBucket)
 }
 
-func (p *dbBucketPool) Put(bucket *dbBucket) {
+func (p *dbBufferBucketPool) Put(bucket *dbBufferBucket) {
 	p.pool.Put(*bucket)
 }

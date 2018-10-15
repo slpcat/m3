@@ -238,11 +238,11 @@ func TestBufferWriteOutOfOrder(t *testing.T) {
 	assertValuesEqual(t, data, results, opts)
 }
 
-func newTestBufferBucketWithData(t *testing.T) (*dbBucket, Options, []value) {
+func newTestBufferBucketWithData(t *testing.T) (*dbBufferBucket, Options, []value) {
 	opts := newBufferTestOptions()
 	rops := opts.RetentionOptions()
 	curr := time.Now().Truncate(rops.BlockSize())
-	b := &dbBucket{opts: opts}
+	b := &dbBufferBucket{opts: opts}
 	b.resetTo(curr, opts)
 	data := [][]value{
 		{
@@ -314,7 +314,7 @@ func TestBufferBucketMergeNilEncoderStreams(t *testing.T) {
 	ropts := opts.RetentionOptions()
 	curr := time.Now().Truncate(ropts.BlockSize())
 
-	b := &dbBucket{}
+	b := &dbBufferBucket{}
 	b.resetTo(curr, opts)
 	emptyEncoder := opts.EncoderPool().Get()
 	emptyEncoder.Reset(curr, 0)
@@ -348,7 +348,7 @@ func TestBufferBucketWriteDuplicateUpserts(t *testing.T) {
 	rops := opts.RetentionOptions()
 	curr := time.Now().Truncate(rops.BlockSize())
 
-	b := &dbBucket{}
+	b := &dbBufferBucket{}
 	b.resetTo(curr, opts)
 
 	data := [][]value{
