@@ -50,3 +50,10 @@ clusters:
       backgroundHealthCheckFailLimit: 4
       backgroundHealthCheckFailThrottleFactor: 0.5
 
+readWorkerPoolPolicy:
+  grow: true
+  size: 10
+
+writeWorkerPoolPolicy:
+  grow: true
+  size: 10
